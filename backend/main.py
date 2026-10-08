@@ -50,8 +50,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class NoCacheStaticFiles(StaticFiles):
+    """Make browsers revalidate frontend files so edits show up on a normal refresh."""
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 if FRONTEND_DIR.exists():
-    app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
+    app.mount("/frontend", NoCacheStaticFiles(directory=FRONTEND_DIR), name="frontend")
 
 
 class FactCheckRequest(BaseModel):
@@ -97,7 +106,7 @@ async def frontend_app() -> FileResponse:
     index_file = FRONTEND_DIR / "TruthNet.html"
     if not index_file.exists():
         raise HTTPException(status_code=404, detail="Frontend files are not installed.")
-    return FileResponse(index_file)
+    return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/health")

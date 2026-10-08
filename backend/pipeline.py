@@ -16,9 +16,9 @@ AgentD = Callable[[str, Dict[str, Any], Dict[str, Any], Dict[str, Any]], Awaitab
 Fallback = Callable[[BaseException], Dict[str, Any]]
 RunnerBundle = Tuple[AgentA, AgentB, AgentC, AgentD, Fallback, Fallback]
 
-TIMEOUT_A_SECONDS = float(os.getenv("TRUTHNET_TIMEOUT_A", "8"))
-TIMEOUT_BC_SECONDS = float(os.getenv("TRUTHNET_TIMEOUT_BC", "16"))
-TIMEOUT_D_SECONDS = float(os.getenv("TRUTHNET_TIMEOUT_D", "30"))
+TIMEOUT_A_SECONDS = float(os.getenv("TRUTHNET_TIMEOUT_A", "15"))
+TIMEOUT_BC_SECONDS = float(os.getenv("TRUTHNET_TIMEOUT_BC", "30"))
+TIMEOUT_D_SECONDS = float(os.getenv("TRUTHNET_TIMEOUT_D", "60"))
 
 DEMO_CLAIMS = [
     "Studies show that 5G towers were proven to spread COVID-19 by activating viral particles in the human bloodstream.",

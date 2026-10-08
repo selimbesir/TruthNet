@@ -414,6 +414,7 @@ function App() {
   });
   const timersRef = useRef([]);
   const requestRef = useRef(null);
+  const briefsRef = useRef({});
   const backendLabel = window.location.protocol === "file:"
     ? "127.0.0.1:8000"
     : window.location.host;
@@ -451,7 +452,10 @@ function App() {
     if (event.status === "agent_a_running") setStep(0);
     if (event.status === "agent_a_done") setStep(1);
     if (event.status === "agents_bc_running") setStep(2);
-    if (event.status === "agents_bc_done") setStep(2);
+    if (event.status === "agents_bc_done") {
+      setStep(2);
+      briefsRef.current = { agent_b: event.data?.agent_b, agent_c: event.data?.agent_c };
+    }
     if (event.status === "agent_d_running") setStep(3);
     if (event.status === "agent_d_done") setStep(3);
 
@@ -460,7 +464,7 @@ function App() {
     }
 
     if (event.result) {
-      setResult(event.result);
+      setResult({ ...briefsRef.current, ...event.result });
       setStep(4);
       setStatus("done");
     }
@@ -482,6 +486,7 @@ function App() {
     setStatus("loading");
     setStep(0);
     setResult(null);
+    briefsRef.current = {};
     setErrorMessage("");
 
     const controller = new AbortController();
@@ -642,8 +647,6 @@ function App() {
 // PROSECUTION & DEFENSE
 // =========================================================================
 function ProsecutionDefense({ result }) {
-  const trueItems = result?.what_is_true ?? [];
-  const falseItems = result?.what_is_false ?? [];
   return (
     <section className="scroll-mt-8">
       <H2 num="3">Prosecution & Defense — Agent Briefs</H2>
@@ -656,14 +659,16 @@ function ProsecutionDefense({ result }) {
           who="Agent B" role="Prosecution"
           tone="var(--v-false-fg)" tint="var(--v-false-bg)"
           posture="Argues the claim is false or misleading"
-          findings={falseItems}
+          brief={result?.agent_b}
+          fallbackFindings={result?.what_is_false ?? []}
           glyph="✗"
         />
         <Brief
           who="Agent C" role="Defense"
           tone="var(--v-true-fg)" tint="var(--v-true-bg)"
           posture="Argues the claim has supportable elements"
-          findings={trueItems}
+          brief={result?.agent_c}
+          fallbackFindings={result?.what_is_true ?? []}
           glyph="✓"
         />
       </div>
@@ -671,7 +676,27 @@ function ProsecutionDefense({ result }) {
   );
 }
 
-function Brief({ who, role, tone, tint, posture, findings, glyph }) {
+function briefSource(source) {
+  const text = String(source || "").trim();
+  if (!/^https?:\/\//i.test(text)) return { label: text, href: null };
+  try {
+    return { label: new URL(text).hostname.replace(/^www\./, ""), href: text };
+  } catch (error) {
+    return { label: text, href: null };
+  }
+}
+
+function Brief({ who, role, tone, tint, posture, brief, fallbackFindings, glyph }) {
+  // The agent's own brief arrives with the stream; older payloads only carry the Judge's lists.
+  const evidence = Array.isArray(brief?.key_evidence) ? brief.key_evidence.filter((e) => e?.point) : [];
+  const caveats = Array.isArray(brief?.missing_context) ? brief.missing_context.filter(Boolean) : [];
+  const findings = brief ? [] : fallbackFindings;
+  const isEmpty = !brief?.summary && evidence.length === 0 && caveats.length === 0 && findings.length === 0;
+  const stance = brief?.stance ? String(brief.stance).replace(/_/g, " ") : "";
+  const confidence = typeof brief?.confidence === "number" ? `${Math.round(brief.confidence * 100)}% confidence` : "";
+  const itemStyle = { fontFamily: "Lora, serif", fontSize: 15, lineHeight: 1.5, color: TN.ink };
+  const metaStyle = { fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: TN.muted, overflowWrap: "anywhere" };
+
   return (
     <div style={{ background: TN.surface, padding: "20px 22px" }}>
       <div className="flex items-center justify-between">
@@ -686,16 +711,47 @@ function Brief({ who, role, tone, tint, posture, findings, glyph }) {
       <div className="mt-3" style={{ fontFamily: "Lora, serif", fontStyle: "italic", fontSize: 14.5, color: TN.ink2 }}>
         {posture}
       </div>
+      {(stance || confidence) && (
+        <div className="mt-3" style={{ ...metaStyle, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          {[stance && `Stance: ${stance}`, confidence].filter(Boolean).join(" · ")}
+        </div>
+      )}
+      {brief?.summary && (
+        <p className="mt-3" style={itemStyle}>{brief.summary}</p>
+      )}
       <ul className="mt-4 flex flex-col gap-2.5">
-        {findings.length === 0 && (
+        {isEmpty && (
           <li style={{ fontFamily: "Lora, serif", fontStyle: "italic", color: TN.muted, fontSize: 14 }}>
             No findings of this kind were returned.
           </li>
         )}
+        {evidence.map((e, i) => {
+          const source = briefSource(e.source);
+          return (
+            <li key={`e${i}`} className="flex gap-2.5" style={itemStyle}>
+              <span style={{ color: tone, fontWeight: 700, fontSize: 15 }}>{glyph}</span>
+              <span>
+                {e.point}
+                {source.label && (
+                  <span style={{ ...metaStyle, display: "block", marginTop: 2 }}>
+                    {source.href
+                      ? <a href={source.href} target="_blank" rel="noopener noreferrer" style={{ color: TN.muted }}>{source.label}</a>
+                      : source.label}
+                    {e.year ? ` · ${e.year}` : ""}
+                  </span>
+                )}
+              </span>
+            </li>
+          );
+        })}
+        {caveats.map((c, i) => (
+          <li key={`c${i}`} className="flex gap-2.5" style={itemStyle}>
+            <span style={{ color: TN.muted, fontWeight: 700, fontSize: 15 }}>?</span>
+            <span>{c}</span>
+          </li>
+        ))}
         {findings.map((f, i) => (
-          <li key={i} className="flex gap-2.5" style={{
-            fontFamily: "Lora, serif", fontSize: 15, lineHeight: 1.5, color: TN.ink,
-          }}>
+          <li key={i} className="flex gap-2.5" style={itemStyle}>
             <span style={{ color: tone, fontWeight: 700, fontSize: 15 }}>{glyph}</span>
             <span>{f}</span>
           </li>

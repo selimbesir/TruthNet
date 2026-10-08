@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import os
 import re
+import time
 import warnings
+import xml.etree.ElementTree as ET
+from datetime import date
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -55,6 +60,8 @@ AGENT_A_SYSTEM_PROMPT = """You are Agent A - a precise claim analyst.
 Your job is to analyze raw user input and extract structured
 information for fact-checking.
 
+IMPORTANT: Today's date is {today}.
+
 Return ONLY valid JSON. No preamble. No explanation. No markdown.
 
 JSON schema:
@@ -65,14 +72,17 @@ JSON schema:
     "people": [], "dates": [], "orgs": [], "stats": [], "locations": []
   },
   "original_tone": "neutral | alarmist | biased_left | biased_right | satirical",
-  "research_prompt": "A neutral, specific, fact-checkable version of the claims",
+  "original_claim": "the EXACT text the user submitted, copied verbatim with zero changes",
+  "research_prompt": "A neutral, specific, fact-checkable version of the claims that PRESERVES the full meaning, all named entities, numbers, and specifics from the original. Do NOT over-generalize or abstract away the claim.",
   "verifiable_elements": ["specific facts that can be verified"],
   "opinion_elements": ["subjective claims or opinions that cannot be fact-checked"]
 }
 
 Rules:
 - Extract only what is in the text. Do not add claims that are not there.
-- research_prompt must be neutral - remove all emotional language.
+- core_claims must preserve the FULL SPECIFIC meaning of the user's claim. Never reduce 'X did Y in Z' to just 'X did Y'.
+- research_prompt must be neutral but MUST keep all specifics: names, numbers, dates, locations, and the exact assertion. Only remove emotional language. Never paraphrase away the core meaning.
+- original_claim is always the exact user input, word for word.
 - If text contains multiple claims, list all in core_claims.
 - If the text appears to be satire, set original_tone to "satirical".
 """
@@ -81,7 +91,11 @@ Rules:
 AGENT_B_SYSTEM_PROMPT = """You are Agent B - The Prosecutor. You are a skeptical investigative journalist.
 Your job is to find evidence that CHALLENGES, DEBUNKS, or COMPLICATES the claim.
 
-You have access to a web_search tool. Use it 2-3 times to find:
+IMPORTANT: Today's date is {today}. You MUST prioritize the most recent sources available (2024-2026). If a claim references current events, statistics, or recent developments, search for the LATEST data.
+
+LIVE SEARCH RESULTS: the user message contains a block of search results retrieved from the web today ({today}). They are newer than your training data. When they conflict with what you remember, the search results are right and your memory is out of date - never state that something "has not happened yet" or "is still pending" if the search results show it has happened.
+
+Use the live search results, plus a web_search tool if one is available, to find:
 - Existing fact-check rulings from Snopes, PolitiFact, Reuters, AP
 - Scientific consensus papers that contradict the claim
 - Statistical corrections or context that changes the claim's meaning
@@ -89,6 +103,9 @@ You have access to a web_search tool. Use it 2-3 times to find:
 
 Prioritize: .gov, .edu, peer-reviewed journals, Reuters, AP, BBC, WHO, CDC
 Avoid: anonymous blogs, social media, sites with known misinformation
+
+CRITICAL: Your evidence must NOT contradict the sources you cite. If a source supports the claim, do not cite it as debunking evidence. Only cite sources whose actual conclusions match the point you are making.
+If the live search results confirm the claim, do NOT invent a case against it: return stance INCONCLUSIVE, say plainly in the summary that current sources confirm the claim, and list only genuine caveats.
 
 Return ONLY valid JSON. No preamble. No markdown.
 
@@ -115,7 +132,11 @@ the strongest honest case FOR the claim.
 You are NOT a blind advocate - you find the best legitimate evidence that
 supports or contextualizes the claim.
 
-You have access to a web_search tool. Use it 2-3 times to find:
+IMPORTANT: Today's date is {today}. You MUST prioritize the most recent sources available (2024-2026). If a claim references current events, statistics, or recent developments, search for the LATEST data.
+
+LIVE SEARCH RESULTS: the user message contains a block of search results retrieved from the web today ({today}). They are newer than your training data. When they conflict with what you remember, the search results are right and your memory is out of date - never state that something "has not happened yet" or "is still pending" if the search results show it has happened.
+
+Use the live search results, plus a web_search tool if one is available, to find:
 - Peer-reviewed papers or official reports supporting the claim
 - Official government or institutional data backing the claim
 - Historical precedents or correct context that validates the claim
@@ -124,6 +145,8 @@ You have access to a web_search tool. Use it 2-3 times to find:
 Prioritize: .gov, .edu, peer-reviewed journals, WHO, CDC, official statistics
 If the claim is partially true, explain what part is accurate and what
 context makes it complicated.
+
+CRITICAL: Your evidence must NOT contradict the sources you cite. If a source debunks the claim, do not cite it as supporting evidence. Only cite sources whose actual conclusions match the point you are making.
 
 Return ONLY valid JSON. No preamble. No markdown.
 
@@ -148,15 +171,25 @@ Return ONLY valid JSON. No preamble. No markdown.
 AGENT_D_SYSTEM_PROMPT = """You are Agent D - The Judge. You receive all evidence from both sides
 and deliver the final verdict. You are impartial.
 You do NOT search. You ONLY reason over the evidence provided.
+Your own training data is out of date: for anything recent, rely on live_search_results and the agents' cited evidence, never on your memory.
+
+IMPORTANT: Today's date is {today}. All relative dates (like "last year", "recently") or claims about the current year should be evaluated relative to {today}.
 
 You will receive:
-- The original user claim
+- The original user claim (verbatim - THIS is what you are judging)
 - Agent A's structured analysis
 - Agent B's case AGAINST the claim (the prosecutor)
 - Agent C's case FOR the claim (the defender)
+- live_search_results: news headlines and encyclopedia excerpts retrieved from the web today. These are the freshest evidence available.
 
 Your job:
-- Weigh evidence from both sides by source credibility and recency
+- Judge the ORIGINAL USER CLAIM, not Agent A's rewritten version
+- Weigh evidence from both sides by source credibility and recency (prefer 2024-2026 sources)
+- Check both agents against live_search_results. If an agent's argument rests on outdated knowledge (e.g. "the trial is still pending") that the live search results contradict, disregard that argument and follow the live search results
+- If the user input is phrased as a question ("was X found guilty"), judge the affirmative statement ("X was found guilty")
+- Judge the claim as literally stated. If what it asserts is accurate, the verdict is TRUE even when more detail exists - put that detail in what_is_missing. Use PARTIALLY_TRUE or MISLEADING only when part of what the claim itself asserts is false or distorted
+- If live_search_results says search was unavailable and the claim is about recent events, do not answer FALSE from memory alone - use UNVERIFIABLE
+- VERIFY source-evidence alignment: if an agent cites a source but their conclusion contradicts what that source actually says, flag it and disregard that evidence
 - Identify where B and C AGREE (high confidence zones)
 - Identify where B and C DISAGREE (uncertainty zones)
 - Detect any manipulation techniques flagged by either agent
@@ -191,6 +224,7 @@ Rules:
 - confidence_score must be an integer from 0 to 100, not a decimal.
 - Use at most 3 items in each list.
 - Use at most 3 top_sources.
+- If agents cite sources that contradict their own conclusions, lower your confidence in their arguments.
 """
 
 
@@ -245,6 +279,42 @@ def _gemini_client(*env_names: str) -> Any:
     return genai.Client(api_key=api_key)
 
 
+_GEMINI_SEARCH_RETRY_SECONDS = 3600
+_GEMINI_MAX_BACKOFF_SECONDS = 45.0
+_GEMINI_BACKOFF_RETRIES = 3
+_gemini_search_disabled_until = 0.0
+
+
+def _gemini_search_available() -> bool:
+    return _env_bool("GEMINI_USE_GOOGLE_SEARCH", True) and time.time() >= _gemini_search_disabled_until
+
+
+def _disable_gemini_search(exc: BaseException) -> None:
+    # Search grounding has its own quota; free-tier keys reject it with 429
+    # while plain generation still works. Stop retrying it for a while.
+    global _gemini_search_disabled_until
+    _gemini_search_disabled_until = time.time() + _GEMINI_SEARCH_RETRY_SECONDS
+    print(
+        "[TruthNet] WARNING: Gemini Google Search grounding is unavailable "
+        f"({type(exc).__name__}: {str(exc)[:120]}). Agents will rely on the keyless "
+        f"live search results instead. Retrying grounding in {_GEMINI_SEARCH_RETRY_SECONDS}s."
+    )
+
+
+def _is_gemini_overload_error(exc: BaseException) -> bool:
+    exc_str = str(exc)
+    return any(marker in exc_str for marker in ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE"))
+
+
+def _gemini_retry_delay(exc: BaseException) -> float:
+    """Seconds the API asked us to wait ("Please retry in 1m2.5s"), or a default."""
+    match = re.search(r"retry in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?", str(exc))
+    if not match or not any(match.groups()):
+        return 7.0
+    hours, minutes, seconds = (float(part) if part else 0.0 for part in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
 def _gemini_api_key_names(env_names: Optional[List[str]]) -> List[str]:
     names = list(env_names or [])
     for fallback_name in ("GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"):
@@ -266,7 +336,15 @@ def safe_parse_json(text: str) -> Dict[str, Any]:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            json_str = text[start : end + 1]
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+        match = re.search(r"\{[\s\S]*?\}", text)
         if match:
             return json.loads(match.group())
         raise ValueError(f"Could not parse JSON from agent response: {text[:200]}")
@@ -279,7 +357,7 @@ async def _call_gemini_json(
     max_tokens: Optional[int] = None,
     api_key_env_names: Optional[List[str]] = None,
     use_google_search: bool = False,
-    retries: int = 1,
+    retries: int = 2,
 ) -> Dict[str, Any]:
     last_text = ""
     current_user_message = user_message
@@ -300,7 +378,7 @@ async def _call_gemini_json(
                 retries=retries,
             )
         except Exception as exc:
-            if key_index >= len(key_names) - 1:
+            if not any(os.getenv(name) for name in key_names[key_index + 1 :]):
                 raise
             print(f"[TruthNet] Gemini key {key_name} failed ({type(exc).__name__}). Trying fallback key.")
 
@@ -320,7 +398,7 @@ async def _call_gemini_json_with_client(
     current_user_message = user_message
 
     for attempt in range(retries + 1):
-        search_enabled = use_google_search and _env_bool("GEMINI_USE_GOOGLE_SEARCH", True)
+        search_enabled = use_google_search and _gemini_search_available()
 
         def generate(with_search: bool) -> Any:
             tools = (
@@ -341,15 +419,43 @@ async def _call_gemini_json_with_client(
                 config=config,
             )
 
-        try:
-            response = await asyncio.to_thread(generate, search_enabled)
-        except Exception:
-            if not search_enabled:
-                raise
-            print("[TruthNet] Gemini Google Search grounding failed. Retrying without search.")
-            response = await asyncio.to_thread(generate, False)
+        async def generate_with_backoff() -> Any:
+            for backoff_attempt in range(_GEMINI_BACKOFF_RETRIES + 1):
+                try:
+                    return await asyncio.to_thread(generate, False)
+                except Exception as exc:
+                    if not _is_gemini_overload_error(exc) or backoff_attempt >= _GEMINI_BACKOFF_RETRIES:
+                        raise
+                    delay = _gemini_retry_delay(exc)
+                    if delay > _GEMINI_MAX_BACKOFF_SECONDS:
+                        # A long wait means the daily quota is gone; retrying cannot help.
+                        raise RuntimeError(
+                            f"Gemini quota for {GEMINI_MODEL} is exhausted; the API asks to retry in "
+                            f"{delay / 60:.0f} minutes. Use another key or model, or wait for the quota to reset."
+                        ) from exc
+                    print(f"[TruthNet] Gemini rate limit/server load. Waiting {delay:.0f}s before retry...")
+                    await asyncio.sleep(delay + 1.0)
 
-        last_text = str(getattr(response, "text", "") or "").strip()
+        if search_enabled:
+            try:
+                response = await asyncio.to_thread(generate, True)
+            except Exception as exc:
+                _disable_gemini_search(exc)
+                response = await generate_with_backoff()
+        else:
+            response = await generate_with_backoff()
+
+        last_text = ""
+        if hasattr(response, "candidates") and response.candidates:
+            parts = getattr(response.candidates[0].content, "parts", []) or []
+            for part in parts:
+                p_text = getattr(part, "text", "") or ""
+                if "{" in p_text and "}" in p_text:
+                    last_text = p_text.strip()
+                    break
+
+        if not last_text:
+            last_text = str(getattr(response, "text", "") or "").strip()
         if not last_text:
             raise ValueError("Gemini returned an empty response.")
 
@@ -542,6 +648,106 @@ async def _get_fact_checks(claim: str, *api_key_env_names: str) -> str:
         return "Google Fact Check API error."
 
 
+_LIVE_SEARCH_HEADERS = {"User-Agent": "TruthNet/2.0 (fact-checking research tool)"}
+_LIVE_SEARCH_UNAVAILABLE = "Live search was unavailable; no current web results could be retrieved."
+_LIVE_SEARCH_CACHE_SECONDS = 600
+_live_search_cache: Dict[str, Any] = {}
+
+
+async def _search_news(httpx_client: Any, query: str, limit: int = 6) -> List[str]:
+    response = await httpx_client.get(
+        "https://news.google.com/rss/search",
+        params={"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"},
+    )
+    response.raise_for_status()
+    results = []
+    for item in ET.fromstring(response.text).iter("item"):
+        title = html.unescape(item.findtext("title") or "").strip()
+        if not title:
+            continue
+        try:
+            published = parsedate_to_datetime(item.findtext("pubDate") or "").date().isoformat()
+        except (TypeError, ValueError):
+            published = "unknown date"
+        results.append(f"[{published}] {title} | {item.findtext('link') or ''}")
+        if len(results) >= limit:
+            break
+    return results
+
+
+async def _search_wikipedia(httpx_client: Any, query: str, limit: int = 2) -> List[str]:
+    response = await httpx_client.get(
+        "https://en.wikipedia.org/w/api.php",
+        params={
+            "action": "query",
+            "format": "json",
+            "generator": "search",
+            "gsrsearch": query,
+            "gsrlimit": limit,
+            "prop": "extracts",
+            "exintro": 1,
+            "explaintext": 1,
+            "exlimit": limit,
+        },
+    )
+    response.raise_for_status()
+    pages = (response.json().get("query") or {}).get("pages") or {}
+    results = []
+    for page in sorted(pages.values(), key=lambda page: page.get("index", 0)):
+        extract = " ".join(str(page.get("extract") or "").split())
+        if not extract:
+            continue
+        title = str(page.get("title", ""))
+        url = "https://en.wikipedia.org/wiki/" + title.replace(" ", "_")
+        results.append(f"Wikipedia - {title} | {url}\n{_truncate(extract, 1200)}")
+    return results
+
+
+async def _get_live_evidence(agent_a_output: Dict[str, Any]) -> str:
+    """Keyless web retrieval so agents see current facts even without model-side search."""
+    queries = []
+    for value in (agent_a_output.get("original_claim"), agent_a_output.get("research_prompt"), _core_claim(agent_a_output)):
+        query = " ".join(str(value or "").split())[:200]
+        if query and query not in queries:
+            queries.append(query)
+    queries = queries[:2]
+    if not queries:
+        return _LIVE_SEARCH_UNAVAILABLE
+
+    cache_key = "\n".join(queries)
+    cached = _live_search_cache.get(cache_key)
+    if cached and time.time() - cached[0] < _LIVE_SEARCH_CACHE_SECONDS:
+        return cached[1]
+
+    async with httpx.AsyncClient(
+        timeout=6.0, headers=_LIVE_SEARCH_HEADERS, follow_redirects=True
+    ) as httpx_client:
+        searches = [_search_news(httpx_client, query) for query in queries]
+        searches += [_search_wikipedia(httpx_client, query) for query in queries]
+        batches = await asyncio.gather(*searches, return_exceptions=True)
+
+    news: List[str] = []
+    wiki: List[str] = []
+    for index, batch in enumerate(batches):
+        if isinstance(batch, BaseException):
+            print(f"[TruthNet] Live search request failed ({type(batch).__name__}: {str(batch)[:120]}).")
+            continue
+        target = news if index < len(queries) else wiki
+        target.extend(line for line in batch if line not in target)
+
+    if not news and not wiki:
+        return _LIVE_SEARCH_UNAVAILABLE
+
+    sections = [f"Retrieved {date.today().isoformat()}."]
+    if news:
+        sections.append("Recent news headlines ([published date] headline - outlet | link):\n" + "\n".join(news[:10]))
+    if wiki:
+        sections.append("Encyclopedia excerpts:\n" + "\n\n".join(wiki[:3]))
+    text = "\n\n".join(sections)
+    _live_search_cache[cache_key] = (time.time(), text)
+    return text
+
+
 def _fact_check_evidence(fact_checks: str) -> List[Dict[str, Any]]:
     if not fact_checks or "No existing fact-check" in fact_checks:
         return []
@@ -638,7 +844,7 @@ async def run_agent_a(user_input: str) -> Dict[str, Any]:
 
     if AGENT_A_PROVIDER == "gemini":
         return await _call_gemini_json(
-            system_prompt=AGENT_A_SYSTEM_PROMPT,
+            system_prompt=AGENT_A_SYSTEM_PROMPT.replace("{today}", date.today().isoformat()),
             user_message=user_input,
             max_tokens=_env_int("GEMINI_MAX_TOKENS", 800),
             api_key_env_names=["GEMINI_AGENT_A_API_KEY", "GEMINI_API_KEY"],
@@ -648,7 +854,7 @@ async def run_agent_a(user_input: str) -> Dict[str, Any]:
     client = _anthropic_client("ANTHROPIC_AGENT_A_API_KEY", "ANTHROPIC_API_KEY")
     return await _call_agent_json(
         client=client,
-        system_prompt=AGENT_A_SYSTEM_PROMPT,
+        system_prompt=AGENT_A_SYSTEM_PROMPT.replace("{today}", date.today().isoformat()),
         user_message=user_input,
         model=ANTHROPIC_AGENT_A_MODEL,
         retries=1,
@@ -665,14 +871,22 @@ async def get_fact_checks_defender(claim: str) -> str:
 
 async def run_agent_b(agent_a_output: Dict[str, Any]) -> Dict[str, Any]:
     core_claim = _core_claim(agent_a_output)
+    original_claim = str(agent_a_output.get("original_claim") or core_claim)
     research_prompt = str(agent_a_output.get("research_prompt") or core_claim)
-    fact_checks = await get_fact_checks_prosecutor(core_claim)
+    fact_checks, live_evidence = await asyncio.gather(
+        get_fact_checks_prosecutor(core_claim),
+        _get_live_evidence(agent_a_output),
+    )
 
     user_message = (
         "Existing fact-check results from Google Fact Check Tools:\n"
         f"{fact_checks}\n\n"
+        "LIVE SEARCH RESULTS (retrieved from the web today; newer than your training data):\n"
+        f"{live_evidence}\n\n"
+        f"ORIGINAL USER CLAIM (verbatim): {original_claim}\n\n"
         "Research and identify credible evidence that challenges this claim:\n"
         f"{research_prompt}\n\n"
+        f"Core claims identified: {json.dumps(agent_a_output.get('core_claims', []))}\n"
         f"Named entities to focus on: {json.dumps(agent_a_output.get('named_entities', {}))}\n"
         f"Domain: {agent_a_output.get('domain', 'other')}\n\n"
         "Return ONLY valid JSON using the required schema."
@@ -680,7 +894,7 @@ async def run_agent_b(agent_a_output: Dict[str, Any]) -> Dict[str, Any]:
 
     if AGENT_B_PROVIDER == "gemini":
         result = await _call_gemini_json(
-            system_prompt=AGENT_B_SYSTEM_PROMPT,
+            system_prompt=AGENT_B_SYSTEM_PROMPT.replace("{today}", date.today().isoformat()),
             user_message=user_message,
             max_tokens=_env_int("GEMINI_MAX_TOKENS", 800),
             api_key_env_names=["GEMINI_AGENT_B_API_KEY", "GEMINI_API_KEY"],
@@ -696,7 +910,7 @@ async def run_agent_b(agent_a_output: Dict[str, Any]) -> Dict[str, Any]:
     )
     result = await _call_agent_json(
         client=client,
-        system_prompt=AGENT_B_SYSTEM_PROMPT,
+        system_prompt=AGENT_B_SYSTEM_PROMPT.replace("{today}", date.today().isoformat()),
         user_message=user_message,
         tools=_web_search_tools(ANTHROPIC_AGENT_B_MODEL),
         model=ANTHROPIC_AGENT_B_MODEL,
@@ -707,14 +921,22 @@ async def run_agent_b(agent_a_output: Dict[str, Any]) -> Dict[str, Any]:
 
 async def run_agent_c(agent_a_output: Dict[str, Any]) -> Dict[str, Any]:
     core_claim = _core_claim(agent_a_output)
+    original_claim = str(agent_a_output.get("original_claim") or core_claim)
     research_prompt = str(agent_a_output.get("research_prompt") or core_claim)
-    fact_checks = await get_fact_checks_defender(core_claim)
+    fact_checks, live_evidence = await asyncio.gather(
+        get_fact_checks_defender(core_claim),
+        _get_live_evidence(agent_a_output),
+    )
 
     user_message = (
         "Existing fact-check results from Google Fact Check Tools:\n"
         f"{fact_checks}\n\n"
+        "LIVE SEARCH RESULTS (retrieved from the web today; newer than your training data):\n"
+        f"{live_evidence}\n\n"
+        f"ORIGINAL USER CLAIM (verbatim): {original_claim}\n\n"
         "Research and identify credible evidence that supports or contextualizes this claim:\n"
         f"{research_prompt}\n\n"
+        f"Core claims identified: {json.dumps(agent_a_output.get('core_claims', []))}\n"
         f"Named entities to focus on: {json.dumps(agent_a_output.get('named_entities', {}))}\n"
         f"Domain: {agent_a_output.get('domain', 'other')}\n\n"
         "Return ONLY valid JSON using the required schema."
@@ -722,7 +944,7 @@ async def run_agent_c(agent_a_output: Dict[str, Any]) -> Dict[str, Any]:
 
     if AGENT_C_PROVIDER == "gemini":
         result = await _call_gemini_json(
-            system_prompt=AGENT_C_SYSTEM_PROMPT,
+            system_prompt=AGENT_C_SYSTEM_PROMPT.replace("{today}", date.today().isoformat()),
             user_message=user_message,
             max_tokens=_env_int("GEMINI_MAX_TOKENS", 800),
             api_key_env_names=["GEMINI_AGENT_C_API_KEY", "GEMINI_API_KEY"],
@@ -738,7 +960,7 @@ async def run_agent_c(agent_a_output: Dict[str, Any]) -> Dict[str, Any]:
     )
     result = await _call_agent_json(
         client=client,
-        system_prompt=AGENT_C_SYSTEM_PROMPT,
+        system_prompt=AGENT_C_SYSTEM_PROMPT.replace("{today}", date.today().isoformat()),
         user_message=user_message,
         tools=_web_search_tools(ANTHROPIC_AGENT_C_MODEL),
         model=ANTHROPIC_AGENT_C_MODEL,
@@ -758,12 +980,13 @@ async def run_agent_d(
         "agent_a": _truncate(agent_a, 600),
         "agent_b": _compact_agent_for_judge(agent_b),
         "agent_c": _compact_agent_for_judge(agent_c),
+        "live_search_results": await _get_live_evidence({**agent_a, "original_claim": agent_a.get("original_claim") or user_input}),
     }
 
     user_message = json.dumps(payload, ensure_ascii=False, indent=2)
     if AGENT_D_PROVIDER == "gemini":
         result = await _call_gemini_json(
-            system_prompt=AGENT_D_SYSTEM_PROMPT,
+            system_prompt=AGENT_D_SYSTEM_PROMPT.replace("{today}", date.today().isoformat()),
             user_message=user_message,
             max_tokens=_env_int("GEMINI_AGENT_D_MAX_TOKENS", 1400),
             api_key_env_names=["GEMINI_AGENT_D_API_KEY", "GEMINI_API_KEY"],
@@ -773,7 +996,7 @@ async def run_agent_d(
         client = _anthropic_client("ANTHROPIC_AGENT_D_API_KEY", "ANTHROPIC_API_KEY")
         result = await _call_agent_json(
             client=client,
-            system_prompt=AGENT_D_SYSTEM_PROMPT,
+            system_prompt=AGENT_D_SYSTEM_PROMPT.replace("{today}", date.today().isoformat()),
             user_message=user_message,
             max_tokens=_env_int("ANTHROPIC_AGENT_D_MAX_TOKENS", 1200),
             model=ANTHROPIC_AGENT_D_MODEL,
