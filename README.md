@@ -109,7 +109,7 @@ The backend is a **FastAPI** service. The pieces that matter most:
 - [`backend/agents.py`](backend/agents.py) — real agent calls against Anthropic and Gemini
 - [`backend/agents_mock.py`](backend/agents_mock.py) — deterministic fake agents for mock mode
 
-## 🚀 Setup
+##  Setup
 
 ```bash
 cd hackathon-main
@@ -175,7 +175,7 @@ Run the HTTP/SSE smoke test after starting the server in mock mode:
 python scripts/test_sse_http.py
 ```
 
-## 🔌 API
+##  API
 
 **JSON verdict mode:**
 
