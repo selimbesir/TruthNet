@@ -20,15 +20,15 @@ The site itself is designed like a research journal — paste a claim, watch the
 
 ---
 
-## ✨ What It Does
+##  What It Does
 
-- 📝 **Parses messy input** into specific, fact-checkable claims
-- ⚖️ **Argues both sides** — a prosecution agent builds the case against the claim, a defense agent builds the strongest honest case for it
-- 🧑‍⚖️ **Judges the evidence** — a final agent weighs both arguments and renders one verdict, not an average
-- 📡 **Streams live progress** to the frontend via Server-Sent Events, so you watch each stage complete instead of staring at a spinner
-- 🧪 **Ships with a mock pipeline** so the whole flow can be demoed without spending a cent on API calls
+-  **Parses messy input** into specific, fact-checkable claims
+-  **Argues both sides** — a prosecution agent builds the case against the claim, a defense agent builds the strongest honest case for it
+-  **Judges the evidence** — a final agent weighs both arguments and renders one verdict, not an average
+-  **Streams live progress** to the frontend via Server-Sent Events, so you watch each stage complete instead of staring at a spinner
+-  **Ships with a mock pipeline** so the whole flow can be demoed without spending a cent on API calls
 
-## 🧠 How It Works
+##  How It Works
 
 ```
           ┌──────────────┐
@@ -59,12 +59,12 @@ Agents **B** and **C** run concurrently — this keeps the pipeline fast and mak
 
 | Verdict | Meaning |
 |---|---|
-| ✅ `TRUE` | The claim checks out against the evidence |
-| ❌ `FALSE` | The claim is contradicted by the evidence |
-| ⚠️ `MISLEADING` | Technically defensible but framed to deceive |
-| 🟡 `PARTIALLY_TRUE` | Some parts hold up, others don't |
-| ❔ `UNVERIFIABLE` | Not enough evidence either way |
-| 🎭 `SATIRE` | Not a genuine factual claim to begin with |
+|  `TRUE` | The claim checks out against the evidence |
+|  `FALSE` | The claim is contradicted by the evidence |
+|  `MISLEADING` | Technically defensible but framed to deceive |
+|  `PARTIALLY_TRUE` | Some parts hold up, others don't |
+|  `UNVERIFIABLE` | Not enough evidence either way |
+|  `SATIRE` | Not a genuine factual claim to begin with |
 
 ## 🖥️ Website Flow
 
@@ -123,7 +123,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> 🔐 Real API keys belong only in `.env`. Never commit `.env`, screenshots of `.env`, terminal output containing keys, or copied key values.
+>  Real API keys belong only in `.env`. Never commit `.env`, screenshots of `.env`, terminal output containing keys, or copied key values.
 
 Use `.env.example` as the template:
 
