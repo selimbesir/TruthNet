@@ -1,69 +1,129 @@
-# TruthNet
+<p align="center">
+  <img src="assets/banner.svg" alt="TruthNet — A Journal of Adversarial Fact-Checking" width="100%">
+</p>
 
-TruthNet is a web app for checking suspicious claims, headlines, and social-media posts with an adversarial AI workflow. The point is simple: instead of asking one model for an instant answer, TruthNet splits the job across multiple agents so the final verdict has both a case against the claim and the strongest honest case for it.
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.12-2B4C8C?style=flat-square&logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/backend-FastAPI-1A5C38?style=flat-square">
+  <img alt="Frontend" src="https://img.shields.io/badge/frontend-React-8B1A1A?style=flat-square">
+  <img alt="Mock Mode" src="https://img.shields.io/badge/demo-mock%20mode%20available-7A4A00?style=flat-square">
+  <img alt="License" src="https://img.shields.io/badge/license-all%20rights%20reserved-3D3D3D?style=flat-square">
+</p>
 
-The website is designed like a research journal. A user pastes a claim, watches the pipeline run in real time, then gets a verdict with a confidence score, explanation, missing context, manipulation techniques, and sources.
+# 🔍 TruthNet
 
-## What It Does
+**TruthNet** is a web app for checking suspicious claims, headlines, and social-media posts — not with one model giving an instant opinion, but with an **adversarial multi-agent pipeline** that argues both sides before reaching a verdict.
 
-- Turns messy input into specific fact-checkable claims.
-- Runs a prosecution agent that looks for evidence challenging or debunking the claim.
-- Runs a defense agent that looks for the strongest legitimate support or context.
-- Sends both sides to a judge agent that produces the final verdict.
-- Streams progress to the frontend so the user sees each stage complete.
+Instead of asking a single LLM "is this true?", TruthNet splits the job across four specialized agents: one extracts the actual claims, one plays **prosecutor** (hunting for evidence that debunks the claim), one plays **defense** (hunting for the strongest legitimate support), and a final **judge** weighs both cases and delivers a verdict with a confidence score, explanation, missing context, manipulation techniques, and sources.
 
-## How It Works
+The site itself is designed like a research journal — paste a claim, watch the pipeline run stage-by-stage in real time, then read the verdict like a dossier.
+
+---
+
+## ✨ What It Does
+
+- 📝 **Parses messy input** into specific, fact-checkable claims
+- ⚖️ **Argues both sides** — a prosecution agent builds the case against the claim, a defense agent builds the strongest honest case for it
+- 🧑‍⚖️ **Judges the evidence** — a final agent weighs both arguments and renders one verdict, not an average
+- 📡 **Streams live progress** to the frontend via Server-Sent Events, so you watch each stage complete instead of staring at a spinner
+- 🧪 **Ships with a mock pipeline** so the whole flow can be demoed without spending a cent on API calls
+
+## 🧠 How It Works
 
 ```
-User claim
-   -> Agent A: extract structured claims
-   -> Agent B: prosecution/debunking research
-   -> Agent C: defense/context research
-   -> Agent D: final judgment
-   -> Website verdict
+          ┌──────────────┐
+  Claim ──▶  Agent A      │  extract atomic, checkable claims
+          │  "Extract"    │
+          └──────┬───────┘
+                 │
+        ┌────────┴────────┐
+        ▼                 ▼
+ ┌─────────────┐   ┌─────────────┐
+ │  Agent B    │   │  Agent C    │   ← run in PARALLEL for speed
+ │ Prosecution │   │  Defense    │     and to avoid one-sided bias
+ │ argues FALSE│   │ argues TRUE │
+ └──────┬──────┘   └──────┬──────┘
+        └────────┬────────┘
+                  ▼
+           ┌─────────────┐
+           │  Agent D    │   weighs both arguments,
+           │   Judge     │   stamps the final verdict
+           └──────┬──────┘
+                  ▼
+             📋 Verdict
 ```
 
-Agent B and Agent C run in parallel. This keeps the app faster and makes the final judgment less one-sided.
+Agents **B** and **C** run concurrently — this keeps the pipeline fast and makes the final judgment less one-sided than a single-pass "fact check" prompt.
 
-Final verdicts can be:
+### 📋 Verdict Taxonomy
 
-```text
-TRUE
-FALSE
-MISLEADING
-PARTIALLY_TRUE
-UNVERIFIABLE
-SATIRE
+| Verdict | Meaning |
+|---|---|
+| ✅ `TRUE` | The claim checks out against the evidence |
+| ❌ `FALSE` | The claim is contradicted by the evidence |
+| ⚠️ `MISLEADING` | Technically defensible but framed to deceive |
+| 🟡 `PARTIALLY_TRUE` | Some parts hold up, others don't |
+| ❔ `UNVERIFIABLE` | Not enough evidence either way |
+| 🎭 `SATIRE` | Not a genuine factual claim to begin with |
+
+## 🖥️ Website Flow
+
+1. Open the TruthNet website
+2. Paste a claim, headline, or post into the input box
+3. Submit it for fact-checking
+4. Watch the live agent timeline update, stage by stage
+5. Read the final verdict, supporting details, missing context, and source list
+
+The frontend lives in [`frontend/TruthNet.html`](frontend/TruthNet.html), with React components in [`frontend/app.jsx`](frontend/app.jsx) and [`frontend/components.jsx`](frontend/components.jsx), styled as an editorial "journal" — serif headlines, letterpress rules, and a verdict that reads like a stamped dossier page.
+
+## 🗂️ Project Structure
+
+```
+hackathon-main/
+├── backend/
+│   ├── main.py             # FastAPI app — serves the API and the frontend
+│   ├── pipeline.py         # Coordinates the 4-agent workflow + SSE streaming
+│   ├── agents.py           # Live Anthropic / Gemini agent implementations
+│   ├── agents_mock.py      # Fake agents for demoing without API calls
+│   ├── stripe_config.py    # Tier/pricing scaffolding (standard / pro / max)
+│   └── stripe_webhooks.py  # Subscription webhook handling (in progress)
+├── frontend/
+│   ├── TruthNet.html       # Entry point served at /app
+│   ├── app.jsx             # Main React app + pipeline diagram
+│   ├── components.jsx      # Verdict cards, chips, shared UI atoms
+│   └── history.jsx         # Past fact-check history view
+├── scripts/
+│   ├── test_pipeline.py    # Pipeline tests (mock mode)
+│   ├── test_sse_http.py    # HTTP/SSE smoke test
+│   └── test_tiers_api.py   # Billing tier API tests
+├── truthnet_terminal.py    # Terminal/CLI demo of the pipeline
+└── requirements.txt
 ```
 
-## Website Flow
+## ⚙️ Backend
 
-1. Open the TruthNet website.
-2. Paste a claim, headline, or post into the input box.
-3. Submit it for fact-checking.
-4. Watch the live agent timeline update.
-5. Read the final verdict, supporting details, missing context, and source list.
+The backend is a **FastAPI** service. The pieces that matter most:
 
-The frontend lives in `frontend/TruthNet.html`, with React components in `frontend/app.jsx` and `frontend/components.jsx`.
+- [`backend/main.py`](backend/main.py) — exposes `/fact-check` and serves the frontend at `/app`
+- [`backend/pipeline.py`](backend/pipeline.py) — orchestrates Agents A → B/C → D, with per-agent timeouts
+- [`backend/agents.py`](backend/agents.py) — real agent calls against Anthropic and Gemini
+- [`backend/agents_mock.py`](backend/agents_mock.py) — deterministic fake agents for mock mode
 
-## Backend
-
-The backend is a FastAPI service. Main files:
-
-- `backend/main.py` exposes the API and serves the frontend.
-- `backend/pipeline.py` coordinates the four-agent workflow.
-- `backend/agents.py` contains live Anthropic/Gemini agent implementations.
-- `backend/agents_mock.py` contains fake agents for testing without API calls.
-
-## Setup
+## 🚀 Setup
 
 ```bash
-cd "/Users/selim/Documents/New project"
+cd hackathon-main
+python -m venv .venv
+
+# macOS / Linux
 source .venv/bin/activate
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+
 pip install -r requirements.txt
 ```
 
-Real API keys belong only in `.env`. Do not commit `.env`, screenshots of `.env`, terminal output containing keys, or copied key values.
+> 🔐 Real API keys belong only in `.env`. Never commit `.env`, screenshots of `.env`, terminal output containing keys, or copied key values.
 
 Use `.env.example` as the template:
 
@@ -71,9 +131,9 @@ Use `.env.example` as the template:
 cp .env.example .env
 ```
 
-Then fill in the providers you want to use.
+Then fill in whichever providers you want to use (Anthropic and/or Gemini).
 
-## Run The Website
+## ▶️ Run The Website
 
 Start the backend:
 
@@ -83,7 +143,7 @@ uvicorn backend.main:app --reload --port 8000
 
 Open:
 
-```text
+```
 http://127.0.0.1:8000/app
 ```
 
@@ -94,9 +154,9 @@ curl http://127.0.0.1:8000/
 curl http://127.0.0.1:8000/health
 ```
 
-## Mock Mode
+## 🧪 Mock Mode
 
-Mock mode is for demos and tests without spending API credits.
+Mock mode is for demos and tests without spending API credits — the pipeline runs end-to-end with deterministic fake agents.
 
 ```bash
 TRUTHNET_MOCK=1 uvicorn backend.main:app --reload --port 8000
@@ -115,9 +175,9 @@ Run the HTTP/SSE smoke test after starting the server in mock mode:
 python scripts/test_sse_http.py
 ```
 
-## API
+## 🔌 API
 
-JSON verdict mode:
+**JSON verdict mode:**
 
 ```bash
 curl -X POST http://127.0.0.1:8000/fact-check \
@@ -125,7 +185,7 @@ curl -X POST http://127.0.0.1:8000/fact-check \
   -d '{"claim":"does israel have nukes"}'
 ```
 
-Website/SSE mode:
+**Website / SSE mode:**
 
 ```bash
 curl -N -X POST http://127.0.0.1:8000/fact-check \
@@ -133,32 +193,29 @@ curl -N -X POST http://127.0.0.1:8000/fact-check \
   -d '{"user_input":"does israel have nukes"}'
 ```
 
-SSE status order:
+**SSE status order:**
 
-```text
-agent_a_running
-agent_a_done
-agents_bc_running
-agents_bc_done
-agent_d_running
-agent_d_done
+```
+agent_a_running → agent_a_done
+agents_bc_running → agents_bc_done
+agent_d_running → agent_d_done
 result
 ```
 
-Final SSE message shape:
+**Final SSE message shape:**
 
 ```json
 {"status":"result","result":{"verdict":"FALSE"}}
 ```
 
-## Terminal Demo
+## 💻 Terminal Demo
 
 ```bash
 python truthnet_terminal.py
 python truthnet_terminal.py "does israel have nukes"
 ```
 
-## Configuration
+## 🔧 Configuration
 
 Useful `.env` flags:
 
@@ -170,8 +227,12 @@ TRUTHNET_TIMEOUT_D=30
 ANTHROPIC_DISABLE_WEB_SEARCH=false
 ```
 
-The live model split is configured through per-agent provider/model flags in `.env`.
+The live model split — which provider and model each of the four agents uses — is configured independently through per-agent flags in `.env` (e.g. `AGENT_A_PROVIDER`, `ANTHROPIC_AGENT_D_MODEL`, `GEMINI_AGENT_B_API_KEY`), so Agent A can run on one provider/model while the Judge runs on another.
 
-## License
+## 💳 Tiers & Billing *(in progress)*
 
-All rights reserved. See `LICENSE`.
+Scaffolding exists for `standard` / `pro` / `max` subscription tiers via Stripe ([`backend/stripe_config.py`](backend/stripe_config.py), [`backend/stripe_webhooks.py`](backend/stripe_webhooks.py)) — price-ID mapping and webhook handling are in place, but not yet wired into the main API surface.
+
+## 📄 License
+
+All rights reserved. Provided for evaluation and portfolio review only — see [`LICENSE`](LICENSE).

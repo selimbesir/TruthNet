@@ -1,0 +1,77 @@
+<svg width="1200" height="320" viewBox="0 0 1200 320" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    :root {
+      --bg:#F7F5F0; --ink:#1A1814; --muted:#8C8478; --border:#D4C9B8; --accent:#2B4C8C;
+      --true:#1A5C38; --true-bg:#EAF4EE; --false:#8B1A1A; --false-bg:#FAEAEA;
+      --warn:#7A4A00; --warn-bg:#FDF3E3; --neutral:#3D3D3D; --neutral-bg:#F0F0F0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:#15140F; --ink:#ECE4D2; --muted:#7A7163; --border:#3D372D; --accent:#9FB9FF;
+        --true:#7DD3A8; --true-bg:#18271E; --false:#ED9999; --false-bg:#2C1818;
+        --warn:#E3B373; --warn-bg:#2C231A; --neutral:#C5BFB0; --neutral-bg:#25231E;
+      }
+    }
+    .bg { fill: var(--bg); }
+    .ink { fill: var(--ink); }
+    .muted { fill: var(--muted); }
+    .rule { stroke: var(--border); }
+    .shield { stroke: var(--ink); fill: var(--bg); }
+    .wordmark { font-family: 'Lora', Georgia, 'Times New Roman', serif; font-weight: 700; fill: var(--ink); }
+    .tagline { font-family: 'Inter', Helvetica, Arial, sans-serif; font-weight: 600; fill: var(--muted); letter-spacing: 3px; }
+    .mono { font-family: 'JetBrains Mono', 'Courier New', monospace; fill: var(--muted); }
+    .chip-label { font-family: 'JetBrains Mono', 'Courier New', monospace; font-weight: 700; letter-spacing: 0.4px; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1200" height="320"/>
+
+  <!-- masthead rules -->
+  <line class="rule" x1="0" y1="16" x2="1200" y2="16" stroke-width="2"/>
+  <line class="rule" x1="0" y1="21" x2="1200" y2="21" stroke-width="0.75"/>
+  <line class="rule" x1="0" y1="299" x2="1200" y2="299" stroke-width="0.75"/>
+  <line class="rule" x1="0" y1="304" x2="1200" y2="304" stroke-width="2"/>
+
+  <!-- issue line -->
+  <text class="mono" x="1180" y="33" font-size="11" text-anchor="end">Vol. 1 &#183; Multi-Agent Verdict Engine</text>
+
+  <!-- shield crest (faithful reproduction of frontend/app.jsx Masthead logo) -->
+  <g transform="translate(80,92) scale(3.3)">
+    <path class="shield" d="M14 1 L26 6 V18 C26 25 20 30 14 33 C8 30 2 25 2 18 V6 L14 1 Z" stroke-width="1.2"/>
+    <text x="14" y="20" text-anchor="middle" font-family="Lora, Georgia, serif" font-size="11" font-weight="700" class="ink">TN</text>
+  </g>
+
+  <!-- wordmark -->
+  <text class="wordmark" x="212" y="172" font-size="76" letter-spacing="-1.5">TruthNet</text>
+  <text class="tagline" x="214" y="204" font-size="15">A JOURNAL OF ADVERSARIAL FACT-CHECKING</text>
+  <text class="mono" x="214" y="232" font-size="12.5">4-agent pipeline &#183; prosecution vs. defense &#183; judged verdict</text>
+
+  <!-- verdict taxonomy -->
+  <text class="tagline" x="760" y="50" font-size="12">VERDICT TAXONOMY</text>
+
+  <!-- row 1 -->
+  <g>
+    <rect x="760" y="62" width="120" height="40" rx="3" fill="var(--true-bg)" stroke="var(--true)" stroke-width="1.2"/>
+    <text class="chip-label" x="820" y="87" text-anchor="middle" font-size="11" fill="var(--true)">TRUE</text>
+
+    <rect x="890" y="62" width="120" height="40" rx="3" fill="var(--false-bg)" stroke="var(--false)" stroke-width="1.2"/>
+    <text class="chip-label" x="950" y="87" text-anchor="middle" font-size="11" fill="var(--false)">FALSE</text>
+
+    <rect x="1020" y="62" width="120" height="40" rx="3" fill="var(--warn-bg)" stroke="var(--warn)" stroke-width="1.2"/>
+    <text class="chip-label" x="1080" y="87" text-anchor="middle" font-size="10" fill="var(--warn)">MISLEADING</text>
+  </g>
+
+  <!-- row 2 -->
+  <g>
+    <rect x="760" y="114" width="120" height="40" rx="3" fill="var(--warn-bg)" stroke="var(--warn)" stroke-width="1.2"/>
+    <text class="chip-label" x="820" y="139" text-anchor="middle" font-size="9.5" fill="var(--warn)">PARTIALLY TRUE</text>
+
+    <rect x="890" y="114" width="120" height="40" rx="3" fill="var(--neutral-bg)" stroke="var(--neutral)" stroke-width="1.2"/>
+    <text class="chip-label" x="950" y="139" text-anchor="middle" font-size="9.5" fill="var(--neutral)">UNVERIFIABLE</text>
+
+    <rect x="1020" y="114" width="120" height="40" rx="3" fill="var(--neutral-bg)" stroke="var(--neutral)" stroke-width="1.2"/>
+    <text class="chip-label" x="1080" y="139" text-anchor="middle" font-size="11" fill="var(--neutral)">SATIRE</text>
+  </g>
+
+  <!-- pipeline caption bottom right -->
+  <text class="mono" x="1140" y="270" font-size="11" text-anchor="end">Claim &#8594; Agent A &#8594; Agents B/C &#8594; Agent D &#8594; Verdict</text>
+</svg>
