@@ -229,9 +229,7 @@ ANTHROPIC_DISABLE_WEB_SEARCH=false
 
 The live model split — which provider and model each of the four agents uses — is configured independently through per-agent flags in `.env` (e.g. `AGENT_A_PROVIDER`, `ANTHROPIC_AGENT_D_MODEL`, `GEMINI_AGENT_B_API_KEY`), so Agent A can run on one provider/model while the Judge runs on another.
 
-## 💳 Tiers & Billing *(in progress)*
 
-Scaffolding exists for `standard` / `pro` / `max` subscription tiers via Stripe ([`backend/stripe_config.py`](backend/stripe_config.py), [`backend/stripe_webhooks.py`](backend/stripe_webhooks.py)) — price-ID mapping and webhook handling are in place, but not yet wired into the main API surface.
 
 ## 📄 License
 
